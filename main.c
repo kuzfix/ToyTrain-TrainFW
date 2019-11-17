@@ -7,11 +7,17 @@
 
 #include <avr/io.h>
 #include <string.h>
+#include <avr/sleep.h>
 #include "config.h"
 #include "ADC.h"
 #include "systime.h"
 #include "UART0_IRQ.h"  //for debug
 #include "pdlib_nrf24l01.h"
+
+#define CARRIER_DETECTED  1
+
+//#define AWAKE_TIME (10*60*1000UL)  //10 min
+#define AWAKE_TIME (100*60*1000UL)  //100 min
 
 #define RUNNING_TIME  5000UL
 //#define IsBtnPressed() (PIND & (1<<2))
@@ -42,6 +48,13 @@ void Init_Timer1()  //for PWM motor control
   OCR1B=0xFFFF; //Output=0
   TCCR1A=(3<<COM1A0) | (3<<COM1B0) | (3<<WGM10); //fast 10bit PWM, inverting mode (allows constant 0 output)
   TCCR1B=(0<<ICNC1) | (0<<ICES1) | (0<<WGM12) | (1<<CS10); //no prescaller 
+}
+
+void Stop_Timer1()
+{
+  TCCR1A=0;
+  TCCR1B=0;
+  PORTB &=~(3<<1);  //Turn off motor
 }
 
 void Motor(int speed,int direction)
@@ -201,13 +214,95 @@ void StartTrain()
   }      
 }
 
+void InitSleep()
+{
+  //Init pin change interrupt for pin PC2 (PinChInt 1) 
+  //PCICR |= (1<<PCIE1);
+  PCMSK1 |= (1<<PCINT10);
+  //Init sleep mode
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+}
+
+void GoToSleep()
+{
+  //TODO: Check the datasheet on all the details on how to conserve more power
+  Stop_Timer1();
+  sleep_enable();
+  PCIFR = (1<<PCIF1);
+  PCICR |= (1<<PCIE1);
+  sleep_cpu();
+}
+
+ISR(PCINT1_vect)
+{
+  sleep_disable();
+  PCICR &= ~(1<<PCIE1); //disable this interrupt 
+  Init_Timer1();
+}
+
+/*call exactly once per millisecond*/
+/*Listen for 1ms every 100ms*/
+int CheckForCarrier()
+{
+  static int state=0;
+  static int counter;
+  char pipe;
+  char data_length;
+  char data[33];
+  int result = 0;
+  int status;
+      
+  switch (state)
+  {
+    case 0: //Enable RxMode
+      NRF24L01_EnableRxMode(); //Takes 130us, next loop will be fine no delay needed
+      counter=0;
+      state++;
+      break;
+    case 1:
+      if(PDLIB_NRF24_ERROR != NRF24L01_IsDataReadyRx(&pipe))
+      {
+    		data_length = NRF24L01_GetRxDataAmount(pipe);
+    		memset(data,0x00,33);
+    		status = NRF24L01_GetData(pipe, data, &data_length);
+        printf("YES! (Status=%d, data=%s)",status,data);
+        result = 1;
+        state = 0;
+      }
+      else 
+      {
+        counter++;
+        if (counter > 50) state++;
+      }      
+      break;
+    case 2:
+      printf("n");
+      NRF24L01_DisableRxMode();
+      counter=0;
+      state++;
+      break;
+    default:
+      counter++;
+      if (counter > 94) state=0;
+      break;
+  }
+  return result;
+}
+
+int ListenForMessages()
+{
+  return 0;
+}
 int main(void)
 {
-  uint32_t now,t1=0,t2=0,t3=0,t4=0,t5=0;
-	int status;
+  uint32_t now,t1=0,t2=0,t3=0,last_activity_time=0;;
+  int iActiveRXmode=0;
 	unsigned char address[5] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01};
-	char data[] = "12345678901234567890123";
-
+  char temp;
+  char data[33];
+  char pipe;
+  int status;
+  
   InitIO();
   Systime_Init();
   ADC_Init();
@@ -215,81 +310,92 @@ int main(void)
   UART0_Init();
   stdout = &UART0_str;
   Init_Timer1();
+  InitSleep();
   sei();
 
+  printf("Starting:\r\n");
   NRF24L01_Init();
-  NRF24L01_SetAirDataRate(PDLIB_NRF24_DRATE_250KBPS);
-  NRF24L01_SetLNAGain(-18); // dBm
-  /* Set the address */
+  NRF24L01_SetAirDataRate(PDLIB_NRF24_DRATE_1MBPS);
+  NRF24L01_SetARD(750);
   NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);
   /* Set the packet size */
-  NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 23);
-  NRF24L01_PowerDown();
+  NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 6);
  /* while (1)
   {
     printf("a");
     _delay_ms(100);
   }*/
+ while (1)
+ {
+  		status = NRF24L01_WaitForDataRx(&pipe);
+
+  		if(PDLIB_NRF24_SUCCESS == status)
+  		{
+    		temp = NRF24L01_GetRxDataAmount(pipe);
+    		printf("Data Available in pipe %d. ",pipe);
+    		printf("Data amount available: %d. ",temp);
+    		memset(data,0x00,33);
+    		status = NRF24L01_GetData(pipe, data, &temp);
+    		printf("Data Read: ");
+    		printf((const char*)data);
+    		printf("\n\r");
+  		}
+ }
+ 
   while(!IsBtnPressed()) {} //wait until the button is pressed for the first time
   printf("Main loop:");
   while (1) 
   {
-	  if (Has_X_MillisecondsPassed(500,&t5)) 
+    if (HasOneMillisecondPassed())
     {
-        printf("S");
-		  status = NRF24L01_SendData(data, 23);
-	      printf("t");
-
-		  if(PDLIB_NRF24_TX_FIFO_FULL == status)
-		  {
-			  /* If TX Fifo is full, we can flush it */
-	      printf("F");
-			  NRF24L01_FlushTX();
-	      printf("l");
-		  }else if(PDLIB_NRF24_TX_ARC_REACHED == status)
-		  {
-		      printf("A");
-			  while(status == PDLIB_NRF24_TX_ARC_REACHED)
-			  {
-				  /* Automatic retransmission count reached, we'll attempt the TX continuously until the TX completes */
-				  if (Has_X_MillisecondsPassed(100,&t3)) {status = NRF24L01_AttemptTx();}
-			    if (Has_X_MillisecondsPassed(1000,&t4)) {printf("!");}
-			  }
-			  printf("r");
-		  }
-    }     
-    if (Has_X_MillisecondsPassed(1000,&t3)) {printf(".");}
-
-/*
-	status = NRF24L01_WaitForDataRx(&pipe);
-
-    if(PDLIB_NRF24_SUCCESS == status)
-    {
-	  temp = NRF24L01_GetRxDataAmount(pipe);
-	  //PrintRegValue("Data Available in: ",pipe);
-	  //PrintRegValue("Data amount available : ",temp);
-	  memset(data,0x00,32);
-	  status = NRF24L01_GetData(pipe, data, &temp);
-	  //PrintString("Data Read: ");
-	  //PrintString((const char*)data);
-	  //PrintString("\n\r");
+      ProcessQueue();
+      if (iActiveRXmode == 0) //Passive listening - just checking for carrier periodically
+      {
+        if (CheckForCarrier() == CARRIER_DETECTED) 
+        {
+          iActiveRXmode = 1;
+          last_activity_time = GetSysTick();
+        }          
+      }
+      else //Active listening
+      {
+        if (ListenForMessages())
+        {
+          last_activity_time = GetSysTick();
+        }
+      }
+      if (GetSysTick() - last_activity_time > AWAKE_TIME)
+      {
+        NRF24L01_PowerDown();
+        printf("Going to sleep...");
+        GoToSleep();
+        //Just woke up - Start the train 
+        printf(" Awake");
+        StartTrain();
+        t1 = GetSysTick();
+        last_activity_time = t1;
+      }
     }
-*/
-    if (HasOneMillisecondPassed()) {ProcessQueue();}
     if (Has_X_MillisecondsPassed(100,&t2))  //adjust speed 10x per sec
     {
       now = GetSysTick();
-      if (IsBtnPressed()) t1=now;
+      if (IsBtnPressed()) 
+      {
+        t1=now;
+        last_activity_time = now;
+      }        
       if (now - t1 > RUNNING_TIME ) 
       {
         StopTrain();
-        
       }        
       else 
       {
         StartTrain();
-        
       }       
     }
+    if (Has_X_MillisecondsPassed(1000,&t3)) {printf(".");}
   }
 }
+
+
+
