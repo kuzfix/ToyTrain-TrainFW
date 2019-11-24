@@ -126,7 +126,7 @@
     <ListValues>
       <Value>%24(PackRepoDir)\Atmel\ATmega_DFP\1.3.300\include</Value>
       <Value>../NRF24L01_lib</Value>
-      <Value>../../../NRF24L01_lib/common</Value>
+      <Value>../../../nrf24L01_plus</Value>
     </ListValues>
   </avrgcc.compiler.directories.IncludePaths>
   <avrgcc.compiler.optimization.level>Optimize (-O1)</avrgcc.compiler.optimization.level>
@@ -149,17 +149,17 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\NRF24L01_lib\common\nRF24L01.h">
+    <Compile Include="..\..\nrf24L01_plus\nrf24.c">
+      <SubType>compile</SubType>
+      <Link>NRF24L01_lib\nrf24.c</Link>
+    </Compile>
+    <Compile Include="..\..\nrf24L01_plus\nrf24.h">
+      <SubType>compile</SubType>
+      <Link>NRF24L01_lib\nrf24.h</Link>
+    </Compile>
+    <Compile Include="..\..\nrf24L01_plus\nRF24L01.h">
       <SubType>compile</SubType>
       <Link>NRF24L01_lib\nRF24L01.h</Link>
-    </Compile>
-    <Compile Include="..\..\NRF24L01_lib\common\pdlib_nrf24l01.c">
-      <SubType>compile</SubType>
-      <Link>NRF24L01_lib\pdlib_nrf24l01.c</Link>
-    </Compile>
-    <Compile Include="..\..\NRF24L01_lib\common\pdlib_nrf24l01.h">
-      <SubType>compile</SubType>
-      <Link>NRF24L01_lib\pdlib_nrf24l01.h</Link>
     </Compile>
     <Compile Include="ADC.c">
       <SubType>compile</SubType>
@@ -170,10 +170,10 @@
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="NRF24L01_lib\pdlib_LL.h">
+    <None Include="NRF24L01_lib\pdlib_LL_ATmega328PB.c">
       <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="NRF24L01_lib\pdlib_LL_ATmega328PB.c">
+    </None>
+    <Compile Include="NRF24L01_lib\radioPinFunctions.c">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="systime.c">

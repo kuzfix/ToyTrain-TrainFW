@@ -12,7 +12,8 @@
 #include "ADC.h"
 #include "systime.h"
 #include "UART0_IRQ.h"  //for debug
-#include "pdlib_nrf24l01.h"
+//#include "pdlib_nrf24l01.h"
+#include "nrf24.h"
 
 #define CARRIER_DETECTED  1
 
@@ -242,7 +243,7 @@ ISR(PCINT1_vect)
 
 /*call exactly once per millisecond*/
 /*Listen for 1ms every 100ms*/
-int CheckForCarrier()
+/*int CheckForCarrier()
 {
   static int state=0;
   static unsigned int counter;
@@ -294,14 +295,15 @@ int CheckForCarrier()
 int ListenForMessages()
 {
   return 0;
-}
+}*/
 int main(void)
 {
   uint32_t now,t1=0,t2=0,t3=0,last_activity_time=0;;
   int iActiveRXmode=0;
-	unsigned char address[5] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01};
+	uint8_t tx_address[5] = {0xD7,0xD7,0xD7,0xD7,0xD7};
+	uint8_t rx_address[5] = {0xE7,0xE7,0xE7,0xE7,0xE7};
   char temp;
-  char data[33];
+  uint8_t data[33];
   char pipe;
   int status;
   
@@ -316,20 +318,41 @@ int main(void)
   sei();
 
   printf("Starting:\r\n");
-  NRF24L01_Init();
+/*  NRF24L01_Init();
   NRF24L01_SetAirDataRate(PDLIB_NRF24_DRATE_1MBPS);
   NRF24L01_SetARD(750);
-  NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);
+  NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);*/
   /* Set the packet size */
-  NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 4);
+ // NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 4);
 /*  while (1)
   {
     printf("y");
     _delay_ms(100);
   }*/
- while (1)
- {
-   CheckForCarrier();
+
+  /* init hardware pins */
+  nrf24_init();
+      
+  /* Channel #2 , payload length: 4 */
+  nrf24_config(2,4);
+      
+  /* Set the device addresses */
+  nrf24_tx_address(tx_address);
+  nrf24_rx_address(rx_address);
+
+  while (1)
+  {
+    if(nrf24_dataReady())
+    {
+   		memset(data,0x00,33);
+      nrf24_getData(data);
+      printf("> %s ",data);
+    }
+    
+  }
+}
+      
+ //  CheckForCarrier();
    /*
   		status = NRF24L01_WaitForDataRx(&pipe);
 
@@ -342,8 +365,8 @@ int main(void)
     		printf((const char*)data);
     		printf("\n\r");
   		}*/
- }
- 
+// }
+ /*
   while(!IsBtnPressed()) {} //wait until the button is pressed for the first time
   printf("Main loop:");
   while (1) 
@@ -398,6 +421,6 @@ int main(void)
     if (Has_X_MillisecondsPassed(1000,&t3)) {printf(".");}
   }
 }
-
+*/
 
 
