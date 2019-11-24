@@ -245,7 +245,7 @@ ISR(PCINT1_vect)
 int CheckForCarrier()
 {
   static int state=0;
-  static int counter;
+  static unsigned int counter;
   char pipe;
   char data_length;
   char data[33];
@@ -265,25 +265,27 @@ int CheckForCarrier()
     		data_length = NRF24L01_GetRxDataAmount(pipe);
     		memset(data,0x00,33);
     		status = NRF24L01_GetData(pipe, data, &data_length);
-        printf("YES! (Status=%d, data=%s)",status,data);
+        NRF24L01_DisableRxMode();
+        printf("C=%d, S=%d, data=%s ",counter, status,data);
         result = 1;
-        state = 0;
+        counter = 0;
+        state = 3;
       }
       else 
       {
         counter++;
-        if (counter > 50) state++;
+        if (counter > 100) state++;
       }      
       break;
     case 2:
-      printf("n");
+      //printf("n");
       NRF24L01_DisableRxMode();
       counter=0;
       state++;
       break;
     default:
       counter++;
-      if (counter > 94) state=0;
+      if (counter > 500) state=0;
       break;
   }
   return result;
@@ -319,27 +321,27 @@ int main(void)
   NRF24L01_SetARD(750);
   NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);
   /* Set the packet size */
-  NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 6);
- /* while (1)
+  NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 4);
+/*  while (1)
   {
-    printf("a");
+    printf("y");
     _delay_ms(100);
   }*/
  while (1)
  {
+   CheckForCarrier();
+   /*
   		status = NRF24L01_WaitForDataRx(&pipe);
 
   		if(PDLIB_NRF24_SUCCESS == status)
   		{
     		temp = NRF24L01_GetRxDataAmount(pipe);
-    		printf("Data Available in pipe %d. ",pipe);
-    		printf("Data amount available: %d. ",temp);
+    		printf("Pipe %d, %d bytes: ",pipe,temp);
     		memset(data,0x00,33);
     		status = NRF24L01_GetData(pipe, data, &temp);
-    		printf("Data Read: ");
     		printf((const char*)data);
     		printf("\n\r");
-  		}
+  		}*/
  }
  
   while(!IsBtnPressed()) {} //wait until the button is pressed for the first time
