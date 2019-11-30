@@ -339,6 +339,7 @@ int main(void)
           memset(data,0x00,33);
           nrf24_getData(data);
           printf("> %s ",data);
+          status=-1;
         }
         status++;
         if (status==0) nrf24_powerDown();
