@@ -256,10 +256,7 @@ int CheckForCarrier()
   switch (state)
   {
     case 0: //Enable RxMode
-      nrf24_init();
-      nrf24_config(2,4);  /* Channel #2 , payload length: 4 */
-      nrf24_tx_address(tx_address);/* Set the device addresses */
-      nrf24_rx_address(rx_address);
+      nrf24_powerUpRx();
       counter=0;
       state++;
       break;
