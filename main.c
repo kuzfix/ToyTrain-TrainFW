@@ -241,33 +241,34 @@ ISR(PCINT1_vect)
   Init_Timer1();
 }
 
+	uint8_t tx_address[5] = {0xD7,0xD7,0xD7,0xD7,0xD7};
+	uint8_t rx_address[5] = {0xE7,0xE7,0xE7,0xE7,0xE7};
+
 /*call exactly once per millisecond*/
 /*Listen for 1ms every 100ms*/
-/*int CheckForCarrier()
+int CheckForCarrier()
 {
   static int state=0;
   static unsigned int counter;
-  char pipe;
-  char data_length;
-  char data[33];
+  uint8_t data[33];
   int result = 0;
-  int status;
       
   switch (state)
   {
     case 0: //Enable RxMode
-      NRF24L01_EnableRxMode(); //Takes 130us, next loop will be fine no delay needed
+      nrf24_init();
+      nrf24_config(2,4);  /* Channel #2 , payload length: 4 */
+      nrf24_tx_address(tx_address);/* Set the device addresses */
+      nrf24_rx_address(rx_address);
       counter=0;
       state++;
       break;
     case 1:
-      if(PDLIB_NRF24_ERROR != NRF24L01_IsDataReadyRx(&pipe))
+      if(nrf24_dataReady())
       {
-    		data_length = NRF24L01_GetRxDataAmount(pipe);
     		memset(data,0x00,33);
-    		status = NRF24L01_GetData(pipe, data, &data_length);
-        NRF24L01_DisableRxMode();
-        printf("C=%d, S=%d, data=%s ",counter, status,data);
+        nrf24_getData(data);
+        printf("C=%d, data=%s ",counter, data);
         result = 1;
         counter = 0;
         state = 3;
@@ -275,12 +276,12 @@ ISR(PCINT1_vect)
       else 
       {
         counter++;
-        if (counter > 100) state++;
+        if (counter > 10) state++;
       }      
       break;
     case 2:
-      //printf("n");
-      NRF24L01_DisableRxMode();
+      printf("n");
+      nrf24_powerDown();
       counter=0;
       state++;
       break;
@@ -291,21 +292,15 @@ ISR(PCINT1_vect)
   }
   return result;
 }
-
+/*
 int ListenForMessages()
 {
   return 0;
 }*/
 int main(void)
 {
-  uint32_t now,t1=0,t2=0,t3=0,last_activity_time=0;;
-  int iActiveRXmode=0;
-	uint8_t tx_address[5] = {0xD7,0xD7,0xD7,0xD7,0xD7};
-	uint8_t rx_address[5] = {0xE7,0xE7,0xE7,0xE7,0xE7};
-  char temp;
   uint8_t data[33];
-  char pipe;
-  int status;
+  int status=0;
   
   InitIO();
   Systime_Init();
@@ -324,11 +319,6 @@ int main(void)
   NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);*/
   /* Set the packet size */
  // NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 4);
-/*  while (1)
-  {
-    printf("y");
-    _delay_ms(100);
-  }*/
 
   /* init hardware pins */
   nrf24_init();
@@ -339,33 +329,35 @@ int main(void)
   /* Set the device addresses */
   nrf24_tx_address(tx_address);
   nrf24_rx_address(rx_address);
+  
+  nrf24_powerDown();
 
   while (1)
   {
-    if(nrf24_dataReady())
+    /*if(nrf24_dataReady())
     {
    		memset(data,0x00,33);
       nrf24_getData(data);
       printf("> %s ",data);
-    }
-    
+    }*/
+    if (HasOneMillisecondPassed())
+    {
+  	  if(!status)
+        status = CheckForCarrier();
+      else
+  	  {
+        if(nrf24_dataReady())
+        {
+          memset(data,0x00,33);
+          nrf24_getData(data);
+          printf("> %s ",data);
+        }
+        status=0;
+        nrf24_powerDown();
+  	  }
+    }     
   }
 }
-      
- //  CheckForCarrier();
-   /*
-  		status = NRF24L01_WaitForDataRx(&pipe);
-
-  		if(PDLIB_NRF24_SUCCESS == status)
-  		{
-    		temp = NRF24L01_GetRxDataAmount(pipe);
-    		printf("Pipe %d, %d bytes: ",pipe,temp);
-    		memset(data,0x00,33);
-    		status = NRF24L01_GetData(pipe, data, &temp);
-    		printf((const char*)data);
-    		printf("\n\r");
-  		}*/
-// }
  /*
   while(!IsBtnPressed()) {} //wait until the button is pressed for the first time
   printf("Main loop:");
