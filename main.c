@@ -260,15 +260,17 @@ int CheckForCarrier()
       counter=0;
       state++;
       break;
-    case 1:
+    case 1: //Wait 10 cycles for wakeup call
       if(nrf24_dataReady())
       {
+        //Wakeup call received        
     		memset(data,0x00,33);
         nrf24_getData(data);
+        //TODO: check msg if it really is a wakeup call
         printf("C=%d, data=%s ",counter, data);
         result = 1;
         counter = 0;
-        state = 3;
+        state = 0;
       }
       else 
       {
@@ -276,7 +278,7 @@ int CheckForCarrier()
         if (counter > 10) state++;
       }      
       break;
-    case 2:
+    case 2: //No wakeup call received
       printf("n");
       nrf24_powerDown();
       counter=0;
@@ -310,21 +312,10 @@ int main(void)
   sei();
 
   printf("Starting:\r\n");
-/*  NRF24L01_Init();
-  NRF24L01_SetAirDataRate(PDLIB_NRF24_DRATE_1MBPS);
-  NRF24L01_SetARD(750);
-  NRF24L01_SetRxAddress(PDLIB_NRF24_PIPE0, address);*/
-  /* Set the packet size */
- // NRF24L01_SetRXPacketSize(PDLIB_NRF24_PIPE0, 4);
-
-  /* init hardware pins */
-  nrf24_init();
-      
-  /* Channel #2 , payload length: 4 */
-  nrf24_config(2,4);
-      
-  /* Set the device addresses */
-  nrf24_tx_address(tx_address);
+  
+  nrf24_init();                   // init hardware pins 
+  nrf24_config(2,4);              // Channel #2 , payload length: 4 
+  nrf24_tx_address(tx_address);   // Set the device addresses 
   nrf24_rx_address(rx_address);
   
   nrf24_powerDown();
@@ -349,8 +340,8 @@ int main(void)
           nrf24_getData(data);
           printf("> %s ",data);
         }
-        status=0;
-        nrf24_powerDown();
+        status++;
+        if (status==0) nrf24_powerDown();
   	  }
     }     
   }
