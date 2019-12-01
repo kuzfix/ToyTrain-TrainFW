@@ -8,15 +8,32 @@
 #include "TrainControl.h"
 #include "HWmotorControl.h"
 
-#define QUEUE_LENGTH  10
-
 int gi_currentTrainSpeed;
+uint32_t  gu32_motorStartTime=0;
+
+uint32_t  gu32_runningTime=DEFAULT_RUNNING_TIME;
+uint32_t  gu32_localRunningTime=DEFAULT_RUNNING_TIME;
+uint32_t  gu32_remoteCmdRunningTime=DEFAULT_RUNNING_TIME;
+uint32_t  gu32_remoteCmdSlowRunningTime=DEFAULT_SLOW_RUNNING_TIME;
+
+//This is more of a command heap then queue - command execution order does not depend
+// on command insertion order
 uint8_t commandQueue[QUEUE_LENGTH];
 int16_t commandQueueParam[QUEUE_LENGTH];
 uint32_t commandQueueTime[QUEUE_LENGTH];
 
 int IsCommandQueueClear();
 int InsertCommand(uint8_t cmd, int16_t param, uint32_t timestamp);
+
+void AutoStop()
+{
+  uint32_t u32_now;
+  u32_now = GetSysTick();
+  if (u32_now - gu32_motorStartTime > gu32_runningTime )
+  {
+    TrainStop();
+  }
+}
 
 void TrainStop()
 {
@@ -48,44 +65,92 @@ void TrainStop()
   }
 }
 
-void TrainForward(int speed)
+void TrainStart(int speed, int direction, int src)
 {
-  uint32_t now;
+  int direction_sign; //1 (forward) or -1
+  int cmdValid=0;
+  uint32_t now=GetSysTick();
+  uint32_t nowinc; 
   
   if (speed > 98) speed = 100;
   if (speed < 0)  speed = 0;
-  
-  if ((speed > gi_currentTrainSpeed))
-  {
-    if (IsCommandQueueClear())
-    {
-      now = GetSysTick();
-      InsertCommand(CMD_FORWARD,speed,now);
-      InsertCommand(CMD_SND_TRG_START,0,now);
-      InsertCommand(CMD_SND_TRG_STOP,0,now+100);
-      gi_currentTrainSpeed=speed;
-    }
-  }      
-}
 
-void TrainBackwards(int speed)
-{
-  uint32_t now;
+  if (direction == CMD_FORWARD) direction_sign = 1;
+  else if (direction == CMD_BACK) direction_sign =-1;
+  else return;
   
-  if (speed > 98) speed = 100;
-  if (speed < 0)  speed = 0;
-  
-  if ((-speed < gi_currentTrainSpeed) && (gi_currentTrainSpeed <= 0))
+  if (speed*direction_sign == gi_currentTrainSpeed)
   {
-    if (IsCommandQueueClear())
+    cmdValid=1;
+  }
+  else if (IsCommandQueueClear())
+  {
+    if (gi_currentTrainSpeed == 0)
     {
-      now = GetSysTick();
-      InsertCommand(CMD_BACK,speed,now);
+      //Start moving
       InsertCommand(CMD_SND_TRG_START,0,now);
       InsertCommand(CMD_SND_TRG_STOP,0,now+100);
-      gi_currentTrainSpeed=-speed;
+       InsertCommand(direction,100,now);  //Start pulse
+      nowinc=now+10;
+      for (int spd=10; spd<speed; spd+=10, nowinc+=100)
+      {
+        InsertCommand(direction,spd,nowinc); 
+      }          
+      InsertCommand(direction,speed,nowinc);
+      gi_currentTrainSpeed=speed*direction_sign;
+      cmdValid=1; 
     }
-  }
+    else if ( ((direction == CMD_FORWARD) && (gi_currentTrainSpeed > 0)) ||
+              ((direction == CMD_BACK   ) && (gi_currentTrainSpeed < 0))  )
+    { 
+      //if no direction change required
+      if ( ((direction == CMD_FORWARD) && (speed > gi_currentTrainSpeed)) ||
+           ((direction == CMD_BACK   ) && (speed >-gi_currentTrainSpeed))  )
+      {  
+        //Accelerate
+        nowinc=now;
+        for (int spd=gi_currentTrainSpeed*direction_sign; spd<speed; spd+=10, nowinc+=100)
+        {
+          InsertCommand(direction,spd,nowinc);
+        }
+        InsertCommand(direction,speed,nowinc);
+        gi_currentTrainSpeed=speed*direction_sign;
+        cmdValid=1;  
+      }
+      else if ( ((direction == CMD_FORWARD) && (speed <  gi_currentTrainSpeed)) ||
+                ((direction == CMD_BACK   ) && (speed < -gi_currentTrainSpeed)))
+      {
+        //Decelerate
+        nowinc=now;
+        for (int spd=gi_currentTrainSpeed*direction_sign; spd>speed; spd-=10, nowinc+=100)
+        {
+          InsertCommand(direction,spd,nowinc);
+        }
+        InsertCommand(direction,speed,nowinc);
+        gi_currentTrainSpeed=speed*direction_sign;
+        cmdValid=1;
+      }
+          
+    }
+    else  //if direction change required, stop instead
+    { 
+      TrainStop();
+    }
+
+  }    
+  //Update running time (depending on source and speed)
+  if (cmdValid)
+  {
+    gu32_motorStartTime=now;
+    if (src == CMD_SRC_LOCAL) gu32_runningTime=gu32_localRunningTime;
+    else
+    {
+      if (speed <= 50)
+      gu32_runningTime=gu32_remoteCmdSlowRunningTime;
+      else
+      gu32_runningTime=gu32_remoteCmdRunningTime;
+    }
+  }  
 }
 
 int IsCommandQueueClear()
@@ -151,10 +216,66 @@ int InsertCommand(uint8_t cmd, int16_t param, uint32_t timestamp)
       commandQueue[i] = cmd | CMD_PENDING_BITMASK;
       commandQueueParam[i] = param;
       commandQueueTime[i] = timestamp;
-       //printf("\nIn %d:c=%02X, p=%d, t=%ld",i,commandQueue[i],commandQueueParam[i],commandQueueTime[i]);
+      printf(" %c=%d",((commandQueue[i] & ~CMD_PENDING_BITMASK) == CMD_FORWARD) ? 'F':'B',commandQueueParam[i]);
       result=1;
       break; 
     }
   }
+  if(!result) printf(" QFull");
   return result;
+}
+
+void SetLocalRunningTime(int t)
+{
+  if (t>0 && t<100)
+  {
+    gu32_localRunningTime=t*1000UL;
+    eeprom_write_byte((uint8_t*)0, t);
+    printf(" Set time to autostop: %ld ms",gu32_localRunningTime);
+  }
+}
+
+void SetRemoteCmdRunningTime(int t)
+{
+  if (t>0 && t<100)
+  {
+    gu32_remoteCmdRunningTime=t*1000UL;
+    eeprom_write_byte((uint8_t*)1, t);
+    printf(" Set time to autostop (remote): %ld ms",gu32_remoteCmdRunningTime); 
+  }
+}
+
+void SetRemoteCmdSlowRunningTime(int t)
+{
+  if (t>0 && t<1000)
+  {
+    gu32_remoteCmdSlowRunningTime=t*100UL;
+    eeprom_write_word((uint16_t*)2, t);
+    printf(" Set time to autostop (remote slow): %ld ms", gu32_remoteCmdSlowRunningTime); 
+  }
+}
+
+void LoadRunningTimes()
+{
+  int t;
+  t=eeprom_read_byte((uint8_t*)0);
+  if (t>0 && t<100)
+  {
+    gu32_localRunningTime=t*1000UL;
+    printf(" Stored time to autostop: %ld ms",gu32_localRunningTime);
+  }
+
+  t=eeprom_read_byte((uint8_t*)1);
+  if (t>0 && t<100)
+  {
+    gu32_remoteCmdRunningTime=t*1000UL;
+    printf(" Stored time to autostop (remote): %ld ms",gu32_remoteCmdRunningTime);
+  }
+
+  t=eeprom_read_word((uint16_t*)2);
+  if (t>0 && t<1000)
+  {
+    gu32_remoteCmdSlowRunningTime=t*100UL;
+    printf(" Stored time to autostop (remote slow): %ld ms", gu32_remoteCmdSlowRunningTime);
+  }
 }

@@ -16,15 +16,7 @@
 #include "nrf24.h"
 #include "kbd.h"
 
-//#define DEFAULT_AWAKE_TIME (10*60*1000UL)  //10 min
-#define DEFAULT_AWAKE_TIME (100*60*1000UL)  //100 min
-#define DEFAULT_RUNNING_TIME  5000UL
-#define DEFAULT_SLOW_RUNNING_TIME  2000UL
-
-uint32_t  gu32_runningTime=DEFAULT_RUNNING_TIME;
-uint32_t  gu32_localRunningTime=DEFAULT_RUNNING_TIME;
-uint32_t  gu32_remoteCmdRunningTime=DEFAULT_RUNNING_TIME;
-uint32_t  gu32_remoteCmdSlowRunningTimeg=DEFAULT_SLOW_RUNNING_TIME;
+#define DEFAULT_AWAKE_TIME (1*60*1000UL)  //10 min
 
 void InitIO()
 {
@@ -147,17 +139,14 @@ void DecodeCommand(uint8_t *pu8_cmd)
   {
     switch (pu8_cmd[0])
     {
-      case 'F': TrainForward(num); printf(" FWD%d ",num); break;
-      case 'B': TrainBackwards(num); printf(" BCK%d ",num); break;
-      case 'T': gu32_localRunningTime=num*1000UL; 
-                printf(" Set time to autostop: %ld ms",gu32_localRunningTime); break;
-      case 't': gu32_remoteCmdRunningTime=num*1000UL; 
-                printf(" Set time to autostop: %ld ms",gu32_localRunningTime); break;
+      case 'F': TrainStart(num, CMD_FORWARD, CMD_SRC_REMOTE); printf(" FWD%d ",num); break;
+      case 'B': TrainStart(num, CMD_BACK, CMD_SRC_REMOTE); printf(" BCK%d ",num); break;
+      case 'T': SetLocalRunningTime(num); break;
+      case 't': SetRemoteCmdRunningTime(num); break;
       case 's': 
         if ((pu8_cmd[0] >= '0') && (pu8_cmd[0] <= '9'))
         {
-          gu32_remoteCmdSlowRunningTimeg=num*1000UL + (pu8_cmd[0]-'0')*100; 
-          printf(" Set time to autostop: %ld ms", gu32_remoteCmdSlowRunningTimeg); 
+          SetRemoteCmdSlowRunningTime(num*10 + (pu8_cmd[0]-'0')); 
         }
         break;
     }
@@ -167,10 +156,7 @@ void DecodeCommand(uint8_t *pu8_cmd)
 
 int main(void)
 {
-  uint32_t  u32_last_activity_time;
-  uint32_t  u32_now;
-  uint32_t  u32_motorStartTime=0;
-  uint32_t  u32_t2;
+  uint32_t  u32_last_activity_time=0;
   uint8_t   pu8_data[33];
   uint8_t   u8_rxActive=0;
   
@@ -183,15 +169,13 @@ int main(void)
   stdout = &UART0_str;
   Init_Timer1();
   InitSleep();
+  LoadRunningTimes();
   sei();
 
-  printf("Starting:\r\n");
-  
   nrf24_init();                   // init hardware pins 
   nrf24_config(2,4);              // Channel #2 , payload length: 4 
   nrf24_tx_address(tx_address);   // Set the device addresses 
   nrf24_rx_address(rx_address);
-  
   nrf24_powerDown();
 
   printf("Main loop:");
@@ -202,21 +186,20 @@ int main(void)
       //Background services (kbd, motor control)
       KBD_Read();
       ProcessCommandQueue();
-
+      AutoStop();
+      
       // React to buttons
       if (KBD_GetReleasedKey())
       {
-        gu32_runningTime=gu32_localRunningTime;
-        u32_motorStartTime=u32_now;
-        u32_last_activity_time = u32_now;
-        TrainForward(100);
+        u32_last_activity_time = GetSysTick();
+        TrainStart(100, CMD_FORWARD, CMD_SRC_LOCAL);
       }
       
       //React to radio messages
   	  if(!u8_rxActive)
       {
         u8_rxActive = CheckForCarrier();
-        u32_last_activity_time = GetSysTick();
+        if (u8_rxActive) u32_last_activity_time = GetSysTick();
       }      
       else //Active listening
   	  {
@@ -224,29 +207,24 @@ int main(void)
         {
           memset(pu8_data,0x00,33);
           nrf24_getData(pu8_data);
+//          nrf24_powerDown();  //Powering down dramatically reduces reception reliability
+//          u8_rxActive=0;
           DecodeCommand(pu8_data);
           u32_last_activity_time = GetSysTick();
         }
   	  }
 
-///////////////////// Auto stop //////////////////////////
-      u32_now = GetSysTick();
-      if (u32_now - u32_motorStartTime > gu32_runningTime )
-      {
-        TrainStop();
-      }
-
 ///////////// Deep sleep activation //////////////////////
       if (GetSysTick() - u32_last_activity_time > DEFAULT_AWAKE_TIME)
       {
         nrf24_powerDown();
-        printf("Going to sleep...");
+        u8_rxActive=0;
+        printf("Going to sleep..."); _delay_ms(50); //Delay to allow to finish transmission.
         GoToSleep();
         //Just woke up - Start the train (The only way to do it is with the local button)
         printf("\r\nAwake!");
-        TrainForward(100);
-        u32_motorStartTime = GetSysTick();
-        u32_last_activity_time = u32_motorStartTime;
+        TrainStart(100, CMD_FORWARD, CMD_SRC_LOCAL);
+        u32_last_activity_time = GetSysTick();
       }
     }     
   }

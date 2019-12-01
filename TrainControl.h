@@ -16,6 +16,11 @@
 
 #include "systime.h"
 #include "HWmotorControl.h"
+#include <avr/eeprom.h>
+
+#define DEFAULT_RUNNING_TIME  5000UL
+#define DEFAULT_SLOW_RUNNING_TIME  5000UL
+#define QUEUE_LENGTH  20
 
 #define CMD_FORWARD           1
 #define CMD_BACK              2
@@ -23,6 +28,8 @@
 #define CMD_SND_TRG_STOP      4
 #define CMD_BLOCK             5
 #define CMD_PENDING_BITMASK 0x80
+#define CMD_SRC_LOCAL         1
+#define CMD_SRC_REMOTE        2
 
 #define SndTrgOn() {DDRD |= (1<<6); PORTD |= (1<<6); DbgOn();}     //Has to be "1"
 #define SndTrgOff() {DDRD &= ~(1<<6); PORTD &= ~(1<<6); DbgOff();}  //          or "HZ" (no pull-up)
@@ -30,8 +37,13 @@
 #define DbgOff() PORTD &= ~(1<<5)
 
 void ProcessCommandQueue();
-void TrainForward(int speed);
-void TrainBackwards(int speed);
+void TrainStart(int speed, int direction, int src);
+void TrainBackwards(int speed, int src);
 void TrainStop();
+void AutoStop();
+void SetLocalRunningTime(int t);
+void SetRemoteCmdRunningTime(int t);
+void SetRemoteCmdSlowRunningTime(int t);
+void LoadRunningTimes();
 
 #endif /* TRAINCONTROL_H_ */

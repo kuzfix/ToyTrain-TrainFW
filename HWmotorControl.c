@@ -26,7 +26,12 @@ void Motor(int speed,int direction)
   uint16_t pwm_val;
   
   if (speed > 100) speed = 100;
-  if (speed < 0) speed = 0;
+  if (speed <= 0) 
+    speed = 0;
+  else
+    speed = 50 + speed/2; 
+    //motor has problems maintaining movement at speeds below 50
+    //adjust minimum to 50 and add a 10ms pulse of 100% at start
   
   pwm_val = 1023 - (1023L*speed/100);
   
