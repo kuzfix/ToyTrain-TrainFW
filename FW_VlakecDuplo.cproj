@@ -173,6 +173,12 @@
     <Compile Include="HWmotorControl.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="kbd.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="kbd.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
