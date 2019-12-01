@@ -14,18 +14,14 @@
 #include "UART0_IRQ.h"  //for debug
 #include "TrainControl.h"
 #include "nrf24.h"
-
-#define CARRIER_DETECTED  1
+#include "kbd.h"
 
 //#define DEFAULT_AWAKE_TIME (10*60*1000UL)  //10 min
 #define DEFAULT_AWAKE_TIME (100*60*1000UL)  //100 min
 #define DEFAULT_RUNNING_TIME  5000UL
 #define DEFAULT_SLOW_RUNNING_TIME  2000UL
 
-//#define IsBtnPressed() (PIND & (1<<2))
-#define IsBtnPressed() (PINC & (1<<2))
-
-
+uint32_t  gu32_runningTime=DEFAULT_RUNNING_TIME;
 uint32_t  gu32_localRunningTime=DEFAULT_RUNNING_TIME;
 uint32_t  gu32_remoteCmdRunningTime=DEFAULT_RUNNING_TIME;
 uint32_t  gu32_remoteCmdSlowRunningTimeg=DEFAULT_SLOW_RUNNING_TIME;
@@ -95,7 +91,7 @@ int CheckForCarrier()
     		memset(data,0x00,33);
         nrf24_getData(data);
         //TODO: check msg if it really is a wakeup call
-        printf("C=%d, data=%s ",counter, data);
+        //printf("C=%d, data=%s ",counter, data);
         result = 1;
         counter = 0;
         state = 0;
@@ -120,17 +116,66 @@ int CheckForCarrier()
   return result;
 }
 
+/* PROTOCOL
+Wake - wake up the receiver - no action if already awake
+Fxx! - Forward with speed xx: ASCII 0(stop)-99(max speed)
+Bxx! - Backwards with speed xx (same format as F)
+Txx! - Time to auto stop (xx seconds).
+txx! - Time to auto stop if command receifed frome remote controller
+sxxx - Time to auto stop if command slow receifed frome remote controller(xx.x seconds)
+*/
+void DecodeCommand(uint8_t *pu8_cmd)
+{
+  int8_t num, num10;
+  num = pu8_cmd[2] - '0';
+  num10 = pu8_cmd[1] - '0';
+  //if (param not a number) return;
+  if ((num < 0) || (num > 9) || (num10 < 0) || (num10 > 9))
+  {
+    return;
+  }
+  
+  num = num+10*num10;
+  
+  if ( (num == 0) && 
+      ((pu8_cmd[0] == 'F') || (pu8_cmd[0] == 'B')) )
+  {
+    TrainStop();
+    printf("Stop!");
+  }
+  else
+  {
+    switch (pu8_cmd[0])
+    {
+      case 'F': TrainForward(num); printf(" FWD%d ",num); break;
+      case 'B': TrainBackwards(num); printf(" BCK%d ",num); break;
+      case 'T': gu32_localRunningTime=num*1000UL; 
+                printf(" Set time to autostop: %ld ms",gu32_localRunningTime); break;
+      case 't': gu32_remoteCmdRunningTime=num*1000UL; 
+                printf(" Set time to autostop: %ld ms",gu32_localRunningTime); break;
+      case 's': 
+        if ((pu8_cmd[0] >= '0') && (pu8_cmd[0] <= '9'))
+        {
+          gu32_remoteCmdSlowRunningTimeg=num*1000UL + (pu8_cmd[0]-'0')*100; 
+          printf(" Set time to autostop: %ld ms", gu32_remoteCmdSlowRunningTimeg); 
+        }
+        break;
+    }
+  }
+
+}
+
 int main(void)
 {
   uint32_t  u32_last_activity_time;
   uint32_t  u32_now;
   uint32_t  u32_motorStartTime=0;
   uint32_t  u32_t2;
-  uint32_t  u32_runningTime;
-  uint8_t   u8_data[33];
+  uint8_t   pu8_data[33];
   uint8_t   u8_rxActive=0;
   
   InitIO();
+  KBD_Init();
   Systime_Init();
   ADC_Init();
   DIDR0=(1<<1); //ADC_Init disables input buffers for PC0 - PC3. Only disable the actual analog inputs dig buf
@@ -149,14 +194,25 @@ int main(void)
   
   nrf24_powerDown();
 
-//  while(!IsBtnPressed()) {} //wait until the button is pressed for the first time
   printf("Main loop:");
   while (1)
   {
     if (HasOneMillisecondPassed())
     {
+      //Background services (kbd, motor control)
+      KBD_Read();
       ProcessCommandQueue();
 
+      // React to buttons
+      if (KBD_GetReleasedKey())
+      {
+        gu32_runningTime=gu32_localRunningTime;
+        u32_motorStartTime=u32_now;
+        u32_last_activity_time = u32_now;
+        TrainForward(100);
+      }
+      
+      //React to radio messages
   	  if(!u8_rxActive)
       {
         u8_rxActive = CheckForCarrier();
@@ -166,14 +222,19 @@ int main(void)
   	  {
         if(nrf24_dataReady())
         {
-          memset(u8_data,0x00,33);
-          nrf24_getData(u8_data);
-          printf("> %s ",u8_data);
-          //TODO: decode the message
-          //
+          memset(pu8_data,0x00,33);
+          nrf24_getData(pu8_data);
+          DecodeCommand(pu8_data);
           u32_last_activity_time = GetSysTick();
         }
   	  }
+
+///////////////////// Auto stop //////////////////////////
+      u32_now = GetSysTick();
+      if (u32_now - u32_motorStartTime > gu32_runningTime )
+      {
+        TrainStop();
+      }
 
 ///////////// Deep sleep activation //////////////////////
       if (GetSysTick() - u32_last_activity_time > DEFAULT_AWAKE_TIME)
@@ -188,31 +249,5 @@ int main(void)
         u32_last_activity_time = u32_motorStartTime;
       }
     }     
-
-////// (relatively) long term motor speed control ///////
-// (should not be in a queue as commands can be invalidated by new incoming commands)
-// Queue is only for short term acceleration/deceleration sequences
-    if (Has_X_MillisecondsPassed(100,&u32_t2))  //adjust speed 10x per sec
-    {
-      u32_now = GetSysTick();
-      if (IsBtnPressed())
-      {
-        u32_runningTime=gu32_localRunningTime;
-        u32_motorStartTime=u32_now;
-        u32_last_activity_time = u32_now;
-      }
-      if (u32_now - u32_motorStartTime > u32_runningTime )
-      {
-        StopTrain();
-      }
-      else
-      {
-        TrainForward(100);
-      }
-    }
   }
 }
-
-//u32_runningTime
-//u32_remoteCmdRunningTime
-//u32_remoteCmdSlowRunningTime

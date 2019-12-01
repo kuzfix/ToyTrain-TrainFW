@@ -31,6 +31,7 @@
 
 void ProcessCommandQueue();
 void TrainForward(int speed);
-void StopTrain();
+void TrainBackwards(int speed);
+void TrainStop();
 
 #endif /* TRAINCONTROL_H_ */
