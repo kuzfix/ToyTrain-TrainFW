@@ -167,6 +167,12 @@
     <Compile Include="config.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="HWmotorControl.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="HWmotorControl.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
@@ -177,6 +183,12 @@
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="systime.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="TrainControl.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="TrainControl.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="UART0_IRQ.c">
