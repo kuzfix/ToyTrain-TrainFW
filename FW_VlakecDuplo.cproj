@@ -182,9 +182,6 @@
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
-    <None Include="NRF24L01_lib\pdlib_LL_ATmega328PB.c">
-      <SubType>compile</SubType>
-    </None>
     <Compile Include="NRF24L01_lib\radioPinFunctions.c">
       <SubType>compile</SubType>
     </Compile>
