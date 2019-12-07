@@ -16,7 +16,7 @@
 #include "nrf24.h"
 #include "kbd.h"
 
-#define DEFAULT_AWAKE_TIME (1*60*1000UL)  //10 min
+#define DEFAULT_AWAKE_TIME (10*60*1000UL)  //10 min
 
 void InitIO()
 {
